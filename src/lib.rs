@@ -798,51 +798,7 @@ where
 {
     /// Create a new Waveform Similarity Overlap-Add instance, with the given initial speed.
     pub fn new(input: I, speed: f32) -> Self {
-        let channels = input.channels();
-        let sample_rate = input.sample_rate();
-        let speed = if speed.is_nan() || speed <= 0.0 {
-            1.0
-        } else {
-            speed
-        };
-        let min_playback_rate = 0.25;
-        let max_playback_rate = 8.0;
-        let speed = speed.clamp(min_playback_rate, max_playback_rate);
-
-        let channels_usize = channels.get() as usize;
-        let state = WsolaState::new(
-            channels_usize,
-            sample_rate.get(),
-            min_playback_rate,
-            max_playback_rate,
-            12.0,
-            40.0,
-        );
-        let temp_capacity = state.search_block_size + state.ola_window_size;
-        let temp_buffer = (0..channels_usize)
-            .map(|_| Vec::with_capacity(temp_capacity))
-            .collect();
-        let temp_frame = vec![0.0; channels_usize];
-        let chunk_size = 256;
-        let fill_dest = vec![vec![0.0; chunk_size]; channels_usize];
-
-        Self {
-            input,
-            speed,
-            min_playback_rate,
-            max_playback_rate,
-            ola_window_size_ms: 12.0,
-            wsola_search_interval_ms: 40.0,
-            channels,
-            sample_rate,
-            state: Some(state),
-            output_samples: Vec::with_capacity(chunk_size * channels_usize),
-            output_samples_pos: 0,
-            inner_eof: false,
-            temp_buffer,
-            temp_frame,
-            fill_dest,
-        }
+        Self::with_params(input, speed, 0.25, 8.0, 12.0, 40.0)
     }
 
     /// Create a new Waveform Similarity Overlap-Add instance with the given custom parameters.
