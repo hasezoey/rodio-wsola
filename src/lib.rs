@@ -1,5 +1,6 @@
 use rodio::source::SeekError;
 use rodio::Source;
+use std::ops::Range;
 use std::time::Duration;
 
 fn get_symmetric_hanning_window(window_length: usize) -> Vec<f32> {
@@ -314,7 +315,7 @@ struct WsolaState {
     ola_window_size_ms: f32,
     wsola_search_interval_ms: f32,
 
-    channels: usize,
+    channels: u16,
     sample_rate: u32,
 
     muted_partial_frame: f64,
@@ -352,7 +353,7 @@ struct WsolaState {
 
 impl WsolaState {
     fn new(
-        channels: usize,
+        channels: u16,
         sample_rate: u32,
         min_playback_rate: f32,
         max_playback_rate: f32,
@@ -373,18 +374,19 @@ impl WsolaState {
 
         let wsola_output_size = ola_window_size + ola_hop_size;
 
-        let wsola_output = vec![vec![0.0_f32; wsola_output_size]; channels];
-        let optimal_block = vec![vec![0.0_f32; ola_window_size]; channels];
+        let channel_usize = channels as usize;
+        let wsola_output = vec![vec![0.0_f32; wsola_output_size]; channel_usize];
+        let optimal_block = vec![vec![0.0_f32; ola_window_size]; channel_usize];
         let search_block_size = num_candidate_blocks + (ola_window_size - 1);
-        let search_block = vec![vec![0.0_f32; search_block_size]; channels];
-        let target_block = vec![vec![0.0_f32; ola_window_size]; channels];
+        let search_block = vec![vec![0.0_f32; search_block_size]; channel_usize];
+        let target_block = vec![vec![0.0_f32; ola_window_size]; channel_usize];
 
         let initial_size = 4 * ola_window_size.max(search_block_size);
-        let input_buffer = vec![Vec::with_capacity(initial_size); channels];
+        let input_buffer = vec![Vec::with_capacity(initial_size); channel_usize];
 
-        let energy_candidate_blocks = vec![0.0_f32; channels * num_candidate_blocks];
-        let energy_target_block = vec![0.0_f32; channels];
-        let dot_prod = vec![0.0_f32; channels];
+        let energy_candidate_blocks = vec![0.0_f32; channel_usize * num_candidate_blocks];
+        let energy_target_block = vec![0.0_f32; channel_usize];
+        let dot_prod = vec![0.0_f32; channel_usize];
 
         WsolaState {
             min_playback_rate,
@@ -423,8 +425,18 @@ impl WsolaState {
         }
     }
 
+    /// Get the channels as a usize for indexing.
+    #[inline]
+    fn channels_usize(&self) -> usize {
+        self.channels as usize
+    }
+
+    fn range_channels(&self) -> Range<usize> {
+        0..self.channels_usize()
+    }
+
     fn reset(&mut self) {
-        for ch in 0..self.channels {
+        for ch in self.range_channels() {
             self.input_buffer[ch].clear();
             self.wsola_output[ch].fill(0.0);
         }
@@ -463,7 +475,7 @@ impl WsolaState {
             return;
         }
         let start = self.input_buffer_start_idx;
-        for i in 0..self.channels {
+        for i in self.range_channels() {
             let len = self.input_buffer[i].len();
             self.input_buffer[i].copy_within(start..len, 0);
             self.input_buffer[i].truncate(len - start);
@@ -491,7 +503,7 @@ impl WsolaState {
             peek_audio_with_zero_prepend(
                 &self.input_buffer,
                 self.input_buffer_start_idx,
-                self.channels,
+                self.channels_usize(),
                 self.target_block_index,
                 &mut self.optimal_block,
                 self.ola_window_size,
@@ -500,7 +512,7 @@ impl WsolaState {
             peek_audio_with_zero_prepend(
                 &self.input_buffer,
                 self.input_buffer_start_idx,
-                self.channels,
+                self.channels_usize(),
                 self.target_block_index,
                 &mut self.target_block,
                 self.ola_window_size,
@@ -508,7 +520,7 @@ impl WsolaState {
             peek_audio_with_zero_prepend(
                 &self.input_buffer,
                 self.input_buffer_start_idx,
-                self.channels,
+                self.channels_usize(),
                 self.search_block_index,
                 &mut self.search_block,
                 self.search_block_size,
@@ -521,13 +533,14 @@ impl WsolaState {
                 last_optimal + exclude_interval_length_frames / 2,
             );
 
+            let channels_usize = self.channels_usize();
             let mut optimal_index = compute_optimal_index(CommonSearchParams {
                 search_segment: &self.search_block,
                 search_segment_frames: self.search_block_size,
                 target_block: &self.target_block,
                 target_block_frames: self.ola_window_size,
                 energy_candidate_blocks: &mut self.energy_candidate_blocks,
-                channels: self.channels,
+                channels: channels_usize,
                 exclude_interval,
                 energy_target_block: &mut self.energy_target_block,
                 dot_prod: &mut self.dot_prod,
@@ -537,13 +550,13 @@ impl WsolaState {
             peek_audio_with_zero_prepend(
                 &self.input_buffer,
                 self.input_buffer_start_idx,
-                self.channels,
+                self.channels_usize(),
                 optimal_index as isize,
                 &mut self.optimal_block,
                 self.ola_window_size,
             );
 
-            for k in 0..self.channels {
+            for k in self.range_channels() {
                 let opt = &mut self.optimal_block[k];
                 let tgt = &self.target_block[k];
                 for n in 0..self.ola_window_size {
@@ -600,7 +613,7 @@ impl WsolaState {
         }
 
         let needed_usize = needed as usize;
-        for ch in 0..self.channels {
+        for ch in self.range_channels() {
             let len = self.input_buffer[ch].len();
             self.input_buffer[ch].resize(len + needed_usize, 0.0);
         }
@@ -627,7 +640,7 @@ impl WsolaState {
 
         self.get_optimal_block();
 
-        for k in 0..self.channels {
+        for k in self.range_channels() {
             if self.wsola_output_started {
                 for n in 0..self.ola_hop_size {
                     let out_idx = self.num_complete_frames + n;
@@ -664,7 +677,6 @@ impl WsolaState {
         self.search_block_index -= earliest_used_index;
     }
 
-    #[expect(clippy::needless_range_loop)]
     fn write_completed_frames_to(
         &mut self,
         requested_frames: usize,
@@ -676,7 +688,7 @@ impl WsolaState {
             return 0;
         }
 
-        for ch in 0..self.channels {
+        for ch in self.range_channels() {
             for f in 0..rendered_frames {
                 dest[ch][dest_offset + f] = self.wsola_output[ch][f];
             }
@@ -697,7 +709,7 @@ impl WsolaState {
         }
 
         let start_idx = self.input_buffer_start_idx;
-        for (i, dest) in dest.iter_mut().take(self.channels).enumerate() {
+        for (i, dest) in dest.iter_mut().take(self.channels_usize()).enumerate() {
             let actual_start = target_idx + start_idx;
             dest[0..frames_to_copy].copy_from_slice(
                 &self.input_buffer[i][actual_start..actual_start + frames_to_copy],
@@ -838,7 +850,7 @@ where
 
         let channels_usize = channels.get() as usize;
         let state = WsolaState::new(
-            channels_usize,
+            channels.get(),
             sample_rate.get(),
             min_playback_rate,
             max_playback_rate,
