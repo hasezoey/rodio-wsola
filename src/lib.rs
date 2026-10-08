@@ -1,5 +1,6 @@
 use rodio::source::SeekError;
 use rodio::Source;
+use std::num::NonZeroU16;
 use std::ops::Range;
 use std::time::Duration;
 
@@ -315,7 +316,7 @@ struct WsolaState {
     ola_window_size_ms: f32,
     wsola_search_interval_ms: f32,
 
-    channels: u16,
+    channels: NonZeroU16,
     sample_rate: u32,
 
     muted_partial_frame: f64,
@@ -353,7 +354,7 @@ struct WsolaState {
 
 impl WsolaState {
     fn new(
-        channels: u16,
+        channels: NonZeroU16,
         sample_rate: u32,
         min_playback_rate: f32,
         max_playback_rate: f32,
@@ -374,7 +375,7 @@ impl WsolaState {
 
         let wsola_output_size = ola_window_size + ola_hop_size;
 
-        let channel_usize = channels as usize;
+        let channel_usize = channels.get() as usize;
         let wsola_output = vec![vec![0.0_f32; wsola_output_size]; channel_usize];
         let optimal_block = vec![vec![0.0_f32; ola_window_size]; channel_usize];
         let search_block_size = num_candidate_blocks + (ola_window_size - 1);
@@ -428,9 +429,11 @@ impl WsolaState {
     /// Get the channels as a usize for indexing.
     #[inline]
     fn channels_usize(&self) -> usize {
-        self.channels as usize
+        self.channels.get() as usize
     }
 
+    /// Get the range of channels to iter through them.
+    #[inline]
     fn range_channels(&self) -> Range<usize> {
         0..self.channels_usize()
     }
@@ -783,7 +786,6 @@ where
     input: I,
     speed: f32,
 
-    channels: rodio::ChannelCount,
     sample_rate: rodio::SampleRate,
 
     state: WsolaState,
@@ -850,7 +852,7 @@ where
 
         let channels_usize = channels.get() as usize;
         let state = WsolaState::new(
-            channels.get(),
+            channels,
             sample_rate.get(),
             min_playback_rate,
             max_playback_rate,
@@ -868,7 +870,6 @@ where
         Self {
             input,
             speed,
-            channels,
             sample_rate,
             state,
             output_samples: Vec::with_capacity(chunk_size * channels_usize),
@@ -916,12 +917,11 @@ where
     }
 
     fn ensure_state(&mut self) -> &mut WsolaState {
-        let channels = self.input.channels().get() as usize;
+        let channels = self.input.channels();
         let sample_rate = self.input.sample_rate().get();
 
         assert_eq!(
-            channels,
-            self.channels.get() as usize,
+            channels, self.state.channels,
             "Wsola: input source channel count changed mid-stream"
         );
         assert_eq!(
@@ -1042,7 +1042,7 @@ where
     }
 
     fn channels(&self) -> rodio::ChannelCount {
-        self.channels
+        self.state.channels
     }
 
     fn sample_rate(&self) -> rodio::SampleRate {
