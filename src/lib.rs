@@ -316,7 +316,6 @@ struct WsolaState {
     channels: NonZeroU16,
     sample_rate: NonZeroU32,
 
-    muted_partial_frame: f64,
     output_time: f64,
     search_block_center_offset: usize,
     search_block_index: isize,
@@ -390,7 +389,6 @@ impl WsolaState {
             max_playback_rate,
             channels,
             sample_rate,
-            muted_partial_frame: 0.0,
             output_time: 0.0,
             search_block_center_offset,
             search_block_index: 0,
@@ -444,7 +442,6 @@ impl WsolaState {
         self.target_block_index = 0;
         self.num_complete_frames = 0;
         self.wsola_output_started = false;
-        self.muted_partial_frame = 0.0;
         self.is_final = false;
     }
 
