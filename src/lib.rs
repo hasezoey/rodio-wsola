@@ -5,8 +5,8 @@ use std::time::Duration;
 fn get_symmetric_hanning_window(window_length: usize) -> Vec<f32> {
     let mut window = vec![0.0_f32; window_length];
     let scale = 2.0 * std::f32::consts::PI / window_length as f32;
-    for n in 0..window_length {
-        window[n] = 0.5 * (1.0 - (n as f32 * scale).cos());
+    for (n, item) in window.iter_mut().enumerate() {
+        *item = 0.5 * (1.0 - (n as f32 * scale).cos());
     }
     window
 }
@@ -303,8 +303,7 @@ fn multi_channel_moving_block_energies(
 
         // First block of channel k.
         let mut sum = 0.0_f32;
-        for m in 0..frames_per_block {
-            let val = input_channel[m];
+        for val in input_channel.iter().take(frames_per_block) {
             sum += val * val;
         }
         energy[k] = sum;
@@ -337,8 +336,8 @@ fn peek_audio_with_zero_prepend(
         num_frames_to_read -= num_zero_frames_appended;
         write_offset = num_zero_frames_appended;
 
-        for ch in 0..channels {
-            dest[ch][0..num_zero_frames_appended].fill(0.0);
+        for dest in dest.iter_mut().take(channels) {
+            dest[0..num_zero_frames_appended].fill(0.0);
         }
     }
 
@@ -708,6 +707,7 @@ impl WsolaState {
         self.search_block_index -= earliest_used_index;
     }
 
+    #[expect(clippy::needless_range_loop)]
     fn write_completed_frames_to(
         &mut self,
         requested_frames: usize,
@@ -740,9 +740,9 @@ impl WsolaState {
         }
 
         let start_idx = self.input_buffer_start_idx;
-        for i in 0..self.channels {
+        for (i, dest) in dest.iter_mut().take(self.channels).enumerate() {
             let actual_start = target_idx + start_idx;
-            dest[i][0..frames_to_copy].copy_from_slice(
+            dest[0..frames_to_copy].copy_from_slice(
                 &self.input_buffer[i][actual_start..actual_start + frames_to_copy],
             );
         }
@@ -1047,7 +1047,7 @@ where
                 let mut read_ok = true;
                 for ch in 0..channels {
                     if let Some(sample) = self.input.next() {
-                        self.temp_frame[ch] = sample as f32;
+                        self.temp_frame[ch] = sample;
                     } else {
                         read_ok = false;
                         break;
@@ -1311,12 +1311,12 @@ mod tests {
         };
 
         // Create Wsola with speed 10.0 (max is 8.0 by default)
-        let mut wsola = Wsola::new(input, 10.0);
+        let wsola = Wsola::new(input, 10.0);
         assert_eq!(wsola.playback_speed(), 8.0); // Clamped to max
 
         // Verify it runs and produces samples instead of silence or panic
         let mut count = 0;
-        while let Some(_) = wsola.next() {
+        for _ in wsola {
             count += 1;
         }
         assert!(count > 0);
@@ -1334,9 +1334,9 @@ mod tests {
             new_channels: 1,
         };
 
-        let mut wsola = Wsola::new(input, 1.5);
+        let wsola = Wsola::new(input, 1.5);
         // This will process samples and eventually panic when it crosses change_at
-        while let Some(_) = wsola.next() {}
+        for _ in wsola {}
     }
 
     #[test]
@@ -1372,9 +1372,9 @@ mod tests {
             sample_rate: 44100,
         };
 
-        let mut wsola = Wsola::new(input, 1.5);
+        let wsola = Wsola::new(input, 1.5);
         let mut output = Vec::new();
-        while let Some(sample) = wsola.next() {
+        for sample in wsola {
             output.push(sample);
         }
 
