@@ -796,6 +796,7 @@ impl<I> Wsola<I>
 where
     I: Source,
 {
+    /// Create a new Waveform Similarity Overlap-Add instance, with the given initial speed.
     pub fn new(input: I, speed: f32) -> Self {
         let channels = input.channels();
         let sample_rate = input.sample_rate();
@@ -844,6 +845,7 @@ where
         }
     }
 
+    /// Create a new Waveform Similarity Overlap-Add instance with the given custom parameters.
     pub fn with_params(
         input: I,
         mut speed: f32,
@@ -919,6 +921,7 @@ where
         }
     }
 
+    /// Change the speed factor.
     pub fn set_speed(&mut self, speed: f32) {
         let speed = if speed.is_nan() || speed <= 0.0 {
             1.0
@@ -928,10 +931,27 @@ where
         self.speed = speed.clamp(self.min_playback_rate, self.max_playback_rate);
     }
 
+    /// Get the current playback speed factor.
     pub fn playback_speed(&self) -> f32 {
         self.speed
     }
 
+    /// Returns a reference to the inner source.
+    #[inline]
+    pub fn inner(&self) -> &I {
+        &self.input
+    }
+
+    /// Returns a mutable reference to the inner source.
+    ///
+    /// Note that modifying the inner source's samples may result in some broken output.
+    #[inline]
+    pub fn inner_mut(&mut self) -> &mut I {
+        &mut self.input
+    }
+
+    /// Returns the inner source.
+    #[inline]
     pub fn into_inner(self) -> I {
         self.input
     }
