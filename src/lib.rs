@@ -60,36 +60,38 @@ fn quadratic_interpolation(y_values: &[f32; 3], extremum: &mut f32, extremum_val
     }
 }
 
-fn decimated_search(
-    decimation: usize,
+/// Common parameters between the various search functions
+struct CommonSearchParams<'a> {
     exclude_interval: (isize, isize),
-    target_block: &[Vec<f32>],
+    target_block: &'a [Vec<f32>],
     target_block_frames: usize,
-    search_segment: &[Vec<f32>],
+    search_segment: &'a [Vec<f32>],
     search_segment_frames: usize,
     channels: usize,
-    energy_target_block: &[f32],
-    energy_candidate_blocks: &[f32],
-    dot_prod: &mut [f32],
-) -> usize {
-    let num_candidate_blocks = search_segment_frames - (target_block_frames - 1);
+    energy_target_block: &'a mut [f32],
+    energy_candidate_blocks: &'a mut [f32],
+    dot_prod: &'a mut [f32],
+}
+
+fn decimated_search(decimation: usize, common: &mut CommonSearchParams) -> usize {
+    let num_candidate_blocks = common.search_segment_frames - (common.target_block_frames - 1);
     let mut similarity = [0.0_f32; 3];
 
     let mut n = 0;
     dot_product_multi(
-        target_block,
+        common.target_block,
         0,
-        search_segment,
+        common.search_segment,
         n,
-        channels,
-        target_block_frames,
-        dot_prod,
+        common.channels,
+        common.target_block_frames,
+        common.dot_prod,
     );
     similarity[0] = similarity_measure(
-        dot_prod,
-        energy_target_block,
-        &energy_candidate_blocks[0..channels],
-        channels,
+        common.dot_prod,
+        common.energy_target_block,
+        &common.energy_candidate_blocks[0..common.channels],
+        common.channels,
     );
 
     let mut best_similarity = similarity[0];
@@ -101,19 +103,19 @@ fn decimated_search(
     }
 
     dot_product_multi(
-        target_block,
+        common.target_block,
         0,
-        search_segment,
+        common.search_segment,
         n,
-        channels,
-        target_block_frames,
-        dot_prod,
+        common.channels,
+        common.target_block_frames,
+        common.dot_prod,
     );
     similarity[1] = similarity_measure(
-        dot_prod,
-        energy_target_block,
-        &energy_candidate_blocks[n * channels..(n + 1) * channels],
-        channels,
+        common.dot_prod,
+        common.energy_target_block,
+        &common.energy_candidate_blocks[n * common.channels..(n + 1) * common.channels],
+        common.channels,
     );
 
     n += decimation;
@@ -127,19 +129,19 @@ fn decimated_search(
 
     while n < num_candidate_blocks {
         dot_product_multi(
-            target_block,
+            common.target_block,
             0,
-            search_segment,
+            common.search_segment,
             n,
-            channels,
-            target_block_frames,
-            dot_prod,
+            common.channels,
+            common.target_block_frames,
+            common.dot_prod,
         );
         similarity[2] = similarity_measure(
-            dot_prod,
-            energy_target_block,
-            &energy_candidate_blocks[n * channels..(n + 1) * channels],
-            channels,
+            common.dot_prod,
+            common.energy_target_block,
+            &common.energy_candidate_blocks[n * common.channels..(n + 1) * common.channels],
+            common.channels,
         );
 
         if (similarity[1] > similarity[0] && similarity[1] >= similarity[2])
@@ -156,15 +158,15 @@ fn decimated_search(
             let candidate_index = (n - decimation) as isize
                 + (normalized_candidate_index * decimation as f32 + 0.5).floor() as isize;
 
-            let in_exclude =
-                candidate_index >= exclude_interval.0 && candidate_index <= exclude_interval.1;
+            let in_exclude = candidate_index >= common.exclude_interval.0
+                && candidate_index <= common.exclude_interval.1;
             if candidate_similarity > best_similarity && !in_exclude {
                 optimal_index = (candidate_index.max(0) as usize).min(num_candidate_blocks - 1);
                 best_similarity = candidate_similarity;
             }
         } else if n + decimation >= num_candidate_blocks {
-            let in_exclude =
-                (n as isize) >= exclude_interval.0 && (n as isize) <= exclude_interval.1;
+            let in_exclude = (n as isize) >= common.exclude_interval.0
+                && (n as isize) <= common.exclude_interval.1;
             if similarity[2] > best_similarity && !in_exclude {
                 optimal_index = n.min(num_candidate_blocks - 1);
                 best_similarity = similarity[2];
@@ -179,43 +181,31 @@ fn decimated_search(
     optimal_index.min(num_candidate_blocks - 1)
 }
 
-fn full_search(
-    low_limit: usize,
-    high_limit: usize,
-    exclude_interval: (isize, isize),
-    target_block: &[Vec<f32>],
-    target_block_frames: usize,
-    search_block: &[Vec<f32>],
-    _search_block_frames: usize,
-    channels: usize,
-    energy_target_block: &[f32],
-    energy_candidate_blocks: &[f32],
-    dot_prod: &mut [f32],
-) -> usize {
+fn full_search(low_limit: usize, high_limit: usize, common: &mut CommonSearchParams) -> usize {
     let mut best_similarity = -f32::MAX;
     let mut optimal_index = 0;
 
     for n in low_limit..=high_limit {
         let n_isize = n as isize;
-        if n_isize >= exclude_interval.0 && n_isize <= exclude_interval.1 {
+        if n_isize >= common.exclude_interval.0 && n_isize <= common.exclude_interval.1 {
             continue;
         }
 
         dot_product_multi(
-            target_block,
+            common.target_block,
             0,
-            search_block,
+            common.search_segment,
             n,
-            channels,
-            target_block_frames,
-            dot_prod,
+            common.channels,
+            common.target_block_frames,
+            common.dot_prod,
         );
 
         let similarity = similarity_measure(
-            dot_prod,
-            energy_target_block,
-            &energy_candidate_blocks[n * channels..(n + 1) * channels],
-            channels,
+            common.dot_prod,
+            common.energy_target_block,
+            &common.energy_candidate_blocks[n * common.channels..(n + 1) * common.channels],
+            common.channels,
         );
 
         if similarity > best_similarity {
@@ -227,66 +217,33 @@ fn full_search(
     optimal_index
 }
 
-fn compute_optimal_index(
-    search_block: &[Vec<f32>],
-    search_block_frames: usize,
-    target_block: &[Vec<f32>],
-    target_block_frames: usize,
-    energy_candidate_blocks: &mut [f32],
-    channels: usize,
-    exclude_interval: (isize, isize),
-    energy_target_block: &mut [f32],
-    dot_prod: &mut [f32],
-) -> usize {
-    let num_candidate_blocks = search_block_frames - (target_block_frames - 1);
+fn compute_optimal_index(mut common: CommonSearchParams) -> usize {
+    let num_candidate_blocks = common.search_segment_frames - (common.target_block_frames - 1);
     let search_decimation = 5;
 
     multi_channel_moving_block_energies(
-        search_block,
-        channels,
-        target_block_frames,
-        energy_candidate_blocks,
+        common.search_segment,
+        common.channels,
+        common.target_block_frames,
+        common.energy_candidate_blocks,
     );
 
     dot_product_multi(
-        target_block,
+        common.target_block,
         0,
-        target_block,
+        common.target_block,
         0,
-        channels,
-        target_block_frames,
-        energy_target_block,
+        common.channels,
+        common.target_block_frames,
+        common.energy_target_block,
     );
 
-    let optimal_index = decimated_search(
-        search_decimation,
-        exclude_interval,
-        target_block,
-        target_block_frames,
-        search_block,
-        search_block_frames,
-        channels,
-        energy_target_block,
-        energy_candidate_blocks,
-        dot_prod,
-    );
+    let optimal_index = decimated_search(search_decimation, &mut common);
 
     let lim_low = optimal_index.saturating_sub(search_decimation);
     let lim_high = (optimal_index + search_decimation).min(num_candidate_blocks - 1);
 
-    full_search(
-        lim_low,
-        lim_high,
-        exclude_interval,
-        target_block,
-        target_block_frames,
-        search_block,
-        search_block_frames,
-        channels,
-        energy_target_block,
-        energy_candidate_blocks,
-        dot_prod,
-    )
+    full_search(lim_low, lim_high, &mut common)
 }
 
 fn multi_channel_moving_block_energies(
@@ -564,17 +521,17 @@ impl WsolaState {
                 last_optimal + exclude_interval_length_frames / 2,
             );
 
-            let mut optimal_index = compute_optimal_index(
-                &self.search_block,
-                self.search_block_size,
-                &self.target_block,
-                self.ola_window_size,
-                &mut self.energy_candidate_blocks,
-                self.channels,
+            let mut optimal_index = compute_optimal_index(CommonSearchParams {
+                search_segment: &self.search_block,
+                search_segment_frames: self.search_block_size,
+                target_block: &self.target_block,
+                target_block_frames: self.ola_window_size,
+                energy_candidate_blocks: &mut self.energy_candidate_blocks,
+                channels: self.channels,
                 exclude_interval,
-                &mut self.energy_target_block,
-                &mut self.dot_prod,
-            );
+                energy_target_block: &mut self.energy_target_block,
+                dot_prod: &mut self.dot_prod,
+            });
 
             optimal_index = (optimal_index as isize + self.search_block_index) as usize;
             peek_audio_with_zero_prepend(
