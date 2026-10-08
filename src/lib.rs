@@ -773,13 +773,11 @@ where
 
     min_playback_rate: f32,
     max_playback_rate: f32,
-    ola_window_size_ms: f32,
-    wsola_search_interval_ms: f32,
 
     channels: rodio::ChannelCount,
     sample_rate: rodio::SampleRate,
 
-    state: Option<WsolaState>,
+    state: WsolaState,
 
     output_samples: Vec<rodio::Sample>,
     output_samples_pos: usize,
@@ -863,11 +861,9 @@ where
             speed,
             min_playback_rate,
             max_playback_rate,
-            ola_window_size_ms,
-            wsola_search_interval_ms,
             channels,
             sample_rate,
-            state: Some(state),
+            state,
             output_samples: Vec::with_capacity(chunk_size * channels_usize),
             output_samples_pos: 0,
             inner_eof: false,
@@ -927,21 +923,7 @@ where
             "Wsola: input source sample rate changed mid-stream"
         );
 
-        if self.state.is_none() {
-            self.state = Some(WsolaState::new(
-                channels,
-                sample_rate,
-                self.min_playback_rate,
-                self.max_playback_rate,
-                self.ola_window_size_ms,
-                self.wsola_search_interval_ms,
-            ));
-            self.output_samples.clear();
-            self.output_samples_pos = 0;
-            self.inner_eof = false;
-        }
-
-        self.state.as_mut().unwrap()
+        &mut self.state
     }
 }
 
@@ -1001,7 +983,7 @@ where
 
         let inner_eof = self.inner_eof;
         self.ensure_state();
-        let state = self.state.as_mut().unwrap();
+        let state = &mut self.state;
         if pulled_frames > 0 {
             for ch in 0..channels {
                 state.input_buffer[ch].extend_from_slice(&self.temp_buffer[ch]);
@@ -1067,9 +1049,7 @@ where
     fn try_seek(&mut self, pos: Duration) -> Result<(), SeekError> {
         let pos_accounting_for_speedup = pos.mul_f32(self.speed);
         self.input.try_seek(pos_accounting_for_speedup)?;
-        if let Some(state) = &mut self.state {
-            state.reset();
-        }
+        self.state.reset();
         self.output_samples.clear();
         self.output_samples_pos = 0;
         self.inner_eof = false;
@@ -1212,8 +1192,8 @@ mod tests {
             0.0,  // search (invalid)
         );
         assert_eq!(wsola_with_params.playback_speed(), 4.0); // Clamped to max
-        assert_eq!(wsola_with_params.ola_window_size_ms, 12.0); // default
-        assert_eq!(wsola_with_params.wsola_search_interval_ms, 40.0); // default
+        assert_eq!(wsola_with_params.state.ola_window_size_ms, 12.0); // default
+        assert_eq!(wsola_with_params.state.wsola_search_interval_ms, 40.0); // default
 
         let input = MockSource {
             samples: vec![0.0 as rodio::Sample; 1000],
@@ -1230,8 +1210,8 @@ mod tests {
             f32::INFINITY,
         );
         assert!(wsola_infinite.playback_speed().is_finite());
-        assert!(wsola_infinite.ola_window_size_ms.is_finite());
-        assert!(wsola_infinite.wsola_search_interval_ms.is_finite());
+        assert!(wsola_infinite.state.ola_window_size_ms.is_finite());
+        assert!(wsola_infinite.state.wsola_search_interval_ms.is_finite());
     }
 
     #[test]
