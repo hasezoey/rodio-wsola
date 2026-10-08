@@ -771,9 +771,6 @@ where
     input: I,
     speed: f32,
 
-    min_playback_rate: f32,
-    max_playback_rate: f32,
-
     channels: rodio::ChannelCount,
     sample_rate: rodio::SampleRate,
 
@@ -859,8 +856,6 @@ where
         Self {
             input,
             speed,
-            min_playback_rate,
-            max_playback_rate,
             channels,
             sample_rate,
             state,
@@ -880,7 +875,7 @@ where
         } else {
             speed
         };
-        self.speed = speed.clamp(self.min_playback_rate, self.max_playback_rate);
+        self.speed = speed.clamp(self.state.min_playback_rate, self.state.max_playback_rate);
     }
 
     /// Get the current playback speed factor.
