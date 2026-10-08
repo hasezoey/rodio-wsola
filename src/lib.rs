@@ -309,12 +309,9 @@ fn peek_audio_with_zero_prepend(
     }
 }
 
-#[allow(dead_code)]
 struct WsolaState {
     min_playback_rate: f32,
     max_playback_rate: f32,
-    ola_window_size_ms: f32,
-    wsola_search_interval_ms: f32,
 
     channels: NonZeroU16,
     sample_rate: NonZeroU32,
@@ -323,7 +320,6 @@ struct WsolaState {
     output_time: f64,
     search_block_center_offset: usize,
     search_block_index: isize,
-    num_candidate_blocks: usize,
     target_block_index: isize,
     ola_window_size: usize,
     ola_hop_size: usize,
@@ -392,15 +388,12 @@ impl WsolaState {
         WsolaState {
             min_playback_rate,
             max_playback_rate,
-            ola_window_size_ms,
-            wsola_search_interval_ms,
             channels,
             sample_rate,
             muted_partial_frame: 0.0,
             output_time: 0.0,
             search_block_center_offset,
             search_block_index: 0,
-            num_candidate_blocks,
             target_block_index: 0,
             ola_window_size,
             ola_hop_size,
@@ -1195,8 +1188,12 @@ mod tests {
             0.0,  // search (invalid)
         );
         assert_eq!(wsola_with_params.playback_speed(), 4.0); // Clamped to max
-        assert_eq!(wsola_with_params.state.ola_window_size_ms, 12.0); // default
-        assert_eq!(wsola_with_params.state.wsola_search_interval_ms, 40.0); // default
+        assert_eq!(
+            (wsola_with_params.state.ola_window_size * 1000)
+                / wsola_with_params.state.sample_rate.get() as usize,
+            12
+        ); // default
+           // assert_eq!(wsola_with_params.state.wsola_search_interval_ms, 40.0); // default
 
         let input = MockSource {
             samples: vec![0.0 as rodio::Sample; 1000],
@@ -1213,8 +1210,7 @@ mod tests {
             f32::INFINITY,
         );
         assert!(wsola_infinite.playback_speed().is_finite());
-        assert!(wsola_infinite.state.ola_window_size_ms.is_finite());
-        assert!(wsola_infinite.state.wsola_search_interval_ms.is_finite());
+        // assert!(wsola_infinite.state.wsola_search_interval_ms.is_finite());
     }
 
     #[test]
