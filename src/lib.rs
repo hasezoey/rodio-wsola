@@ -338,7 +338,6 @@ struct WsolaState {
     input_buffer_start_idx: usize,
 
     input_buffer_final_frames: usize,
-    input_buffer_added_silence: usize,
     energy_candidate_blocks: Vec<f32>,
     optimal_index: usize,
     is_final: bool,
@@ -408,7 +407,6 @@ impl WsolaState {
             input_buffer,
             input_buffer_start_idx: 0,
             input_buffer_final_frames: 0,
-            input_buffer_added_silence: 0,
             energy_candidate_blocks,
             optimal_index: 0,
             is_final: false,
@@ -436,7 +434,6 @@ impl WsolaState {
         }
         self.input_buffer_start_idx = 0;
         self.input_buffer_final_frames = 0;
-        self.input_buffer_added_silence = 0;
         self.output_time = 0.0;
         self.search_block_index = 0;
         self.target_block_index = 0;
@@ -610,7 +607,6 @@ impl WsolaState {
             let len = self.input_buffer[ch].len();
             self.input_buffer[ch].resize(len + needed_usize, 0.0);
         }
-        self.input_buffer_added_silence += needed_usize;
     }
 
     fn run_one_wsola_iteration(&mut self, playback_rate: f32) -> bool {
