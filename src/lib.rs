@@ -4,8 +4,8 @@ use std::num::{NonZeroU16, NonZeroU32};
 use std::ops::Range;
 use std::time::Duration;
 
-fn get_symmetric_hanning_window(window_length: usize) -> Vec<f32> {
-    let mut window = vec![0.0_f32; window_length];
+fn get_symmetric_hanning_window(window_length: usize) -> Box<[f32]> {
+    let mut window = vec![0.0_f32; window_length].into_boxed_slice();
     let scale = 2.0 * std::f32::consts::PI / window_length as f32;
     for (n, item) in window.iter_mut().enumerate() {
         *item = 0.5 * (1.0 - (n as f32 * scale).cos());
@@ -14,9 +14,9 @@ fn get_symmetric_hanning_window(window_length: usize) -> Vec<f32> {
 }
 
 fn dot_product_multi(
-    a: &[Vec<f32>],
+    a: &[Box<[f32]>],
     frame_offset_a: usize,
-    b: &[Vec<f32>],
+    b: &[Box<[f32]>],
     frame_offset_b: usize,
     channels: usize,
     num_frames: usize,
@@ -65,9 +65,9 @@ fn quadratic_interpolation(y_values: &[f32; 3], extremum: &mut f32, extremum_val
 /// Common parameters between the various search functions
 struct CommonSearchParams<'a> {
     exclude_interval: (isize, isize),
-    target_block: &'a [Vec<f32>],
+    target_block: &'a [Box<[f32]>],
     target_block_frames: usize,
-    search_segment: &'a [Vec<f32>],
+    search_segment: &'a [Box<[f32]>],
     search_segment_frames: usize,
     channels: usize,
     energy_target_block: &'a mut [f32],
@@ -249,7 +249,7 @@ fn compute_optimal_index(mut common: CommonSearchParams) -> usize {
 }
 
 fn multi_channel_moving_block_energies(
-    input: &[Vec<f32>],
+    input: &[Box<[f32]>],
     channels: usize,
     frames_per_block: usize,
     energy: &mut [f32],
@@ -281,7 +281,7 @@ fn peek_audio_with_zero_prepend(
     start_idx: usize,
     channels: usize,
     read_offset_frames: isize,
-    dest: &mut [Vec<f32>],
+    dest: &mut [Box<[f32]>],
     dest_frames: usize,
 ) {
     let mut write_offset = 0;
@@ -309,6 +309,13 @@ fn peek_audio_with_zero_prepend(
     }
 }
 
+/// Create a 2D matrix at fixed sizes with zeroed content.
+fn create_matrix_2d(rows: usize, columns: usize) -> Box<[Box<[f32]>]> {
+    std::iter::repeat_with(|| vec![0.0; columns].into_boxed_slice())
+        .take(rows)
+        .collect()
+}
+
 struct WsolaState {
     min_playback_rate: f32,
     max_playback_rate: f32,
@@ -325,25 +332,25 @@ struct WsolaState {
     num_complete_frames: usize,
     wsola_output_started: bool,
 
-    ola_window: Vec<f32>,
-    transition_window: Vec<f32>,
+    ola_window: Box<[f32]>,
+    transition_window: Box<[f32]>,
 
-    wsola_output: Vec<Vec<f32>>,
+    wsola_output: Box<[Box<[f32]>]>,
     wsola_output_size: usize,
-    optimal_block: Vec<Vec<f32>>,
-    search_block: Vec<Vec<f32>>,
+    optimal_block: Box<[Box<[f32]>]>,
+    search_block: Box<[Box<[f32]>]>,
     search_block_size: usize,
-    target_block: Vec<Vec<f32>>,
-    input_buffer: Vec<Vec<f32>>,
+    target_block: Box<[Box<[f32]>]>,
+    input_buffer: Box<[Vec<f32>]>,
     input_buffer_start_idx: usize,
 
     input_buffer_final_frames: usize,
-    energy_candidate_blocks: Vec<f32>,
+    energy_candidate_blocks: Box<[f32]>,
     optimal_index: usize,
     is_final: bool,
 
-    energy_target_block: Vec<f32>,
-    dot_prod: Vec<f32>,
+    energy_target_block: Box<[f32]>,
+    dot_prod: Box<[f32]>,
 }
 
 impl WsolaState {
@@ -370,18 +377,19 @@ impl WsolaState {
         let wsola_output_size = ola_window_size + ola_hop_size;
 
         let channel_usize = channels.get() as usize;
-        let wsola_output = vec![vec![0.0_f32; wsola_output_size]; channel_usize];
-        let optimal_block = vec![vec![0.0_f32; ola_window_size]; channel_usize];
+        let wsola_output = create_matrix_2d(channel_usize, wsola_output_size);
+        let optimal_block = create_matrix_2d(channel_usize, ola_window_size);
         let search_block_size = num_candidate_blocks + (ola_window_size - 1);
-        let search_block = vec![vec![0.0_f32; search_block_size]; channel_usize];
-        let target_block = vec![vec![0.0_f32; ola_window_size]; channel_usize];
+        let search_block = create_matrix_2d(channel_usize, search_block_size);
+        let target_block = create_matrix_2d(channel_usize, ola_window_size);
 
         let initial_size = 4 * ola_window_size.max(search_block_size);
-        let input_buffer = vec![Vec::with_capacity(initial_size); channel_usize];
+        let input_buffer = vec![Vec::with_capacity(initial_size); channel_usize].into_boxed_slice();
 
-        let energy_candidate_blocks = vec![0.0_f32; channel_usize * num_candidate_blocks];
-        let energy_target_block = vec![0.0_f32; channel_usize];
-        let dot_prod = vec![0.0_f32; channel_usize];
+        let energy_candidate_blocks =
+            vec![0.0_f32; channel_usize * num_candidate_blocks].into_boxed_slice();
+        let energy_target_block = vec![0.0_f32; channel_usize].into_boxed_slice();
+        let dot_prod = vec![0.0_f32; channel_usize].into_boxed_slice();
 
         WsolaState {
             min_playback_rate,
@@ -669,7 +677,7 @@ impl WsolaState {
     fn write_completed_frames_to(
         &mut self,
         requested_frames: usize,
-        dest: &mut [Vec<f32>],
+        dest: &mut [Box<[f32]>],
         dest_offset: usize,
     ) -> usize {
         let rendered_frames = self.num_complete_frames.min(requested_frames);
@@ -690,7 +698,7 @@ impl WsolaState {
         rendered_frames
     }
 
-    fn read_input_buffer(&mut self, dest_size: usize, dest: &mut [Vec<f32>]) -> usize {
+    fn read_input_buffer(&mut self, dest_size: usize, dest: &mut [Box<[f32]>]) -> usize {
         let target_idx = self.target_block_index.max(0) as usize;
         let frames_to_copy = dest_size.min(self.input_buffer_frames().saturating_sub(target_idx));
         if frames_to_copy == 0 {
@@ -710,7 +718,7 @@ impl WsolaState {
 
     fn fill_buffer(
         &mut self,
-        dest: &mut [Vec<f32>],
+        dest: &mut [Box<[f32]>],
         dest_size: usize,
         playback_rate: f32,
     ) -> usize {
@@ -780,9 +788,9 @@ where
     inner_eof: bool,
 
     // Reusable buffers to avoid allocations in `next()`
-    temp_buffer: Vec<Vec<f32>>,
-    temp_frame: Vec<f32>,
-    fill_dest: Vec<Vec<f32>>,
+    temp_buffer: Box<[Vec<f32>]>,
+    temp_frame: Box<[f32]>,
+    fill_dest: Box<[Box<[f32]>]>,
 }
 
 impl<I> Wsola<I>
@@ -848,9 +856,9 @@ where
             .range_channels()
             .map(|_| Vec::with_capacity(temp_capacity))
             .collect();
-        let temp_frame = vec![0.0; channels_usize];
+        let temp_frame = vec![0.0; channels_usize].into_boxed_slice();
         let chunk_size = 256;
-        let fill_dest = vec![vec![0.0; chunk_size]; channels_usize];
+        let fill_dest = create_matrix_2d(channels_usize, chunk_size);
 
         Self {
             input,
