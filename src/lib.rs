@@ -844,7 +844,8 @@ where
             wsola_search_interval_ms,
         );
         let temp_capacity = state.search_block_size + state.ola_window_size;
-        let temp_buffer = (0..channels_usize)
+        let temp_buffer = state
+            .range_channels()
             .map(|_| Vec::with_capacity(temp_capacity))
             .collect();
         let temp_frame = vec![0.0; channels_usize];
@@ -940,7 +941,7 @@ where
             state.frames_needed(speed)
         };
 
-        for ch in 0..channels {
+        for ch in self.state.range_channels() {
             self.temp_buffer[ch].clear();
         }
         let mut pulled_frames = 0;
@@ -949,7 +950,7 @@ where
             for _ in 0..needed {
                 self.temp_frame.fill(0.0);
                 let mut read_ok = true;
-                for ch in 0..channels {
+                for ch in self.state.range_channels() {
                     if let Some(sample) = self.input.next() {
                         self.temp_frame[ch] = sample;
                     } else {
@@ -959,7 +960,7 @@ where
                 }
 
                 if read_ok {
-                    for ch in 0..channels {
+                    for ch in self.state.range_channels() {
                         self.temp_buffer[ch].push(self.temp_frame[ch]);
                     }
                     pulled_frames += 1;
@@ -974,7 +975,7 @@ where
         self.ensure_state();
         let state = &mut self.state;
         if pulled_frames > 0 {
-            for ch in 0..channels {
+            for ch in state.range_channels() {
                 state.input_buffer[ch].extend_from_slice(&self.temp_buffer[ch]);
             }
         }
@@ -988,7 +989,7 @@ where
         if rendered_frames > 0 {
             self.output_samples.reserve(rendered_frames * channels);
             for f in 0..rendered_frames {
-                for ch in 0..channels {
+                for ch in self.state.range_channels() {
                     self.output_samples
                         .push(self.fill_dest[ch][f] as rodio::Sample);
                 }
